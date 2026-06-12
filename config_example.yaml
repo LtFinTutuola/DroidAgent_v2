@@ -56,6 +56,7 @@ report_generation:
   code_mapping_file_path: ""
   cutoff_threshold: 0.05
   output_folder: "heatmap_reports"
+  use_full_branch_timeline: false
 
 # Neuro-symbolic engine weights (must sum to 1.0)
 # These control the convex combination of four scoring dimensions:

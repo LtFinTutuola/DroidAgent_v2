@@ -70,10 +70,15 @@ def node_1_config_manager(state):
     commits = [h.strip().strip('"') for h in log_output.splitlines() if h.strip()]
 
     # ── Calculate repository temporal boundaries ─────────────────────────────
-    # These are the absolute first and last commit dates across the entire repo
-    # (not filtered by since_filter), used for Time Decay calculations.
+    # Depending on config, these are either the absolute first and last commit dates 
+    # across the entire repo, or filtered by the since_filter timeframe.
+    report_config = config.get("report_generation", {})
+    use_full_timeline = report_config.get("use_full_branch_timeline", True)
+    
+    first_commit_flag = "" if use_full_timeline else since_flag
+
     repo_first_commit_date = execute_git(
-        f'git log --reverse --format="%ci" {target_branch}',
+        f'git log --reverse --format="%ci" {first_commit_flag} {target_branch}',
         cwd=repo_path, check=True
     ).splitlines()[0].strip().strip('"') if commits else ""
 
