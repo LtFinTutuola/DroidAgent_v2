@@ -74,7 +74,7 @@ def node_6_exporter(state):
             if not chash:
                 continue
                 
-            impact = commit.get("scores", {}).get("calculation_factors", {}).get("final_impact", 0.0)
+            impact = commit.get("impact", {}).get("final_impact_score", 0.0)
             
             if impact > 0:
                 if chash not in class_data["active_commits"]:
@@ -105,7 +105,7 @@ def node_6_exporter(state):
         
         for chash, commit_list in legacy_data.get("commits", {}).items():
             for commit in commit_list:
-                impact = commit.get("scores", {}).get("calculation_factors", {}).get("final_impact", 0.0)
+                impact = commit.get("impact", {}).get("final_impact_score", 0.0)
                 
                 if impact > 0:
                     if chash not in class_data["legacy_commits"]:
