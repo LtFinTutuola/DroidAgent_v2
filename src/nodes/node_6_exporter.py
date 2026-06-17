@@ -47,26 +47,39 @@ def node_6_exporter(state):
     projects_data = {}
     
     global_legacy_commits = state.get("global_legacy_commits", {})
+    
+    report_config = config.get("report_generation", {})
+    analyze_class_level = report_config.get("analyze_class_level", False)
+    target_classes = report_config.get("classes", [])
 
     for entry in census_entries:
         proj_name = entry.get("project", "Unknown Project")
-        if proj_name not in projects_data:
-            projects_data[proj_name] = {}
-            
         parent_obj = entry.get("parent_object", "")
         log_obj = entry.get("logical_object", "")
         class_name = parent_obj if parent_obj else log_obj
         
-        if class_name not in projects_data[proj_name]:
-            projects_data[proj_name][class_name] = {
-                "class_name": class_name,
+        if analyze_class_level:
+            if class_name not in target_classes:
+                continue
+            group_key_1 = class_name
+            group_key_2 = log_obj
+        else:
+            group_key_1 = proj_name
+            group_key_2 = class_name
+
+        if group_key_1 not in projects_data:
+            projects_data[group_key_1] = {}
+            
+        if group_key_2 not in projects_data[group_key_1]:
+            projects_data[group_key_1][group_key_2] = {
+                "class_name": group_key_2,
                 "logical_objects": [],
                 "active_commits": {},
                 "legacy_commits": {},
                 "base_legacy_score": 0.0
             }
             
-        class_data = projects_data[proj_name][class_name]
+        class_data = projects_data[group_key_1][group_key_2]
         class_data["logical_objects"].append(entry)
         
         for commit in entry.get("commits", []):
@@ -87,35 +100,36 @@ def node_6_exporter(state):
                 class_data["active_commits"][chash]["impacts"].append(impact)
 
     # Process global_legacy_commits
-    for class_name, legacy_data in global_legacy_commits.items():
-        proj_name = legacy_data.get("project", "Unknown Project")
-        if proj_name not in projects_data:
-            projects_data[proj_name] = {}
-            
-        if class_name not in projects_data[proj_name]:
-            projects_data[proj_name][class_name] = {
-                "class_name": class_name,
-                "logical_objects": [],
-                "active_commits": {},
-                "legacy_commits": {},
-                "base_legacy_score": 0.0
-            }
-            
-        class_data = projects_data[proj_name][class_name]
-        
-        for chash, commit_list in legacy_data.get("commits", {}).items():
-            for commit in commit_list:
-                impact = commit.get("impact", {}).get("final_impact_score", 0.0)
+    if not analyze_class_level:
+        for class_name, legacy_data in global_legacy_commits.items():
+            proj_name = legacy_data.get("project", "Unknown Project")
+            if proj_name not in projects_data:
+                projects_data[proj_name] = {}
                 
-                if impact > 0:
-                    if chash not in class_data["legacy_commits"]:
-                        class_data["legacy_commits"][chash] = {
-                            "commit_hash": chash,
-                            "commit_description": commit.get("commit_description", ""),
-                            "commit_date": commit.get("commit_date", ""),
-                            "impacts": []
-                        }
-                    class_data["legacy_commits"][chash]["impacts"].append(impact)
+            if class_name not in projects_data[proj_name]:
+                projects_data[proj_name][class_name] = {
+                    "class_name": class_name,
+                    "logical_objects": [],
+                    "active_commits": {},
+                    "legacy_commits": {},
+                    "base_legacy_score": 0.0
+                }
+                
+            class_data = projects_data[proj_name][class_name]
+            
+            for chash, commit_list in legacy_data.get("commits", {}).items():
+                for commit in commit_list:
+                    impact = commit.get("impact", {}).get("final_impact_score", 0.0)
+                    
+                    if impact > 0:
+                        if chash not in class_data["legacy_commits"]:
+                            class_data["legacy_commits"][chash] = {
+                                "commit_hash": chash,
+                                "commit_description": commit.get("commit_description", ""),
+                                "commit_date": commit.get("commit_date", ""),
+                                "impacts": []
+                            }
+                        class_data["legacy_commits"][chash]["impacts"].append(impact)
 
     def calculate_harmonic_score(impacts):
         sorted_impacts = sorted(impacts, reverse=True)
