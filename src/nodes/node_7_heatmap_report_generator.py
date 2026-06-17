@@ -30,7 +30,7 @@ def node_7_heatmap_report_generator(state):
     config = state.get("config", {})
     report_config = config.get("report_generation", {})
 
-    cutoff_threshold = float(report_config.get("cutoff_threshold", 0.05))
+
     output_folder = report_config.get("output_folder", "output")
     os.makedirs(output_folder, exist_ok=True)
 
@@ -62,7 +62,7 @@ def node_7_heatmap_report_generator(state):
         logger.error("Missing required data files for report generation.")
         return state
 
-    logger.info(f"Generating report with cutoff_threshold: {cutoff_threshold}")
+    logger.info("Generating heatmap report...")
     logger.info(f"Aggregated data: {agg_path}")
     logger.info(f"Raw data: {raw_path}")
 
@@ -94,9 +94,9 @@ def node_7_heatmap_report_generator(state):
     valid_commit_hashes = set()
     for proj in data:
         for cls in proj.get('classes', []):
-            if cls.get('impact_score', 0) >= cutoff_threshold:
+            if cls.get('impact_score', 0) > 0:
                 for c in cls.get('commit_contributions', []):
-                    if c.get('impact_score', 0) >= cutoff_threshold:
+                    if c.get('impact_score', 0) > 0:
                         c_hash = c.get('commit_hash')
                         if c_hash:
                             valid_commit_hashes.add(c_hash)
@@ -113,7 +113,7 @@ def node_7_heatmap_report_generator(state):
         for cls in proj.get('classes', []):
             impact = cls.get('impact_score', 0)
             
-            if impact >= cutoff_threshold:
+            if impact > 0:
                 records.append({
                     'Project': proj_name,
                     'Class': cls.get('class_name').split('.')[-1],
@@ -126,7 +126,7 @@ def node_7_heatmap_report_generator(state):
     df = pd.DataFrame(records)
     
     if df.empty:
-        logger.warning("No classes exceed the cutoff threshold. Report generation aborted.")
+        logger.warning("No classes with impact > 0 found. Report generation aborted.")
         return state
 
     # 4. Bubble Chart Generation
@@ -153,17 +153,17 @@ def node_7_heatmap_report_generator(state):
     plt.colorbar(scatter, label='Livello di Calore (Impact Score)')
 
     for i, row in df.iterrows():
-        if row['ImpactScore'] > cutoff_threshold * 2:
+        if row['ImpactScore'] > 0:
             plt.text(row['ImpactScore'] + 0.06, row['Project'], row['Class'], 
                      va='center', ha='left', fontsize=9, 
                      bbox=dict(facecolor='white', alpha=0.6, edgecolor='none', pad=1))
 
-    plt.title(f'Bubble Chart: Livello di Calore delle Classi (Cutoff: {cutoff_threshold})', fontsize=16, pad=20)
+    plt.title('Bubble Chart: Livello di Calore delle Classi', fontsize=16, pad=20)
     plt.xlabel('Calore della Classe (Impact Score)', fontsize=12)
     plt.ylabel('Progetti', fontsize=12)
     plt.grid(axis='y', linestyle='--', alpha=0.4)
     plt.grid(axis='x', linestyle='--', alpha=0.2)
-    plt.xlim(max(-0.2, cutoff_threshold - 0.2), df['ImpactScore'].max() + 0.8) 
+    plt.xlim(-0.2, df['ImpactScore'].max() + 0.8) 
     plt.tight_layout()
     
     chart_path = os.path.join(output_folder, 'temp_bubble_chart.png')
@@ -188,7 +188,7 @@ def node_7_heatmap_report_generator(state):
     story.append(Paragraph(f"<b>Timeframe Analizzato:</b> {timeframe_str}", normal_style))
     story.append(Paragraph(f"<b>Commit Analizzati (sopra soglia):</b> {analyzed_pull_requests}", normal_style))
     story.append(Spacer(1, 0.2 * inch))
-    story.append(Paragraph(f"Questo report include le classi e i commit con un <b>Impact Score superiore a {cutoff_threshold}</b>.", normal_style))
+    story.append(Paragraph("Questo report include le classi e i commit con un <b>Impact Score maggiore di zero</b>.", normal_style))
     story.append(Spacer(1, 0.2 * inch))
 
     # Fit image to A4
@@ -212,7 +212,7 @@ def node_7_heatmap_report_generator(state):
 
     for i, row in df_sorted.iterrows():
         commits = row['Commits']
-        valid_commits = [c for c in commits if c.get('impact_score', 0) >= cutoff_threshold]
+        valid_commits = [c for c in commits if c.get('impact_score', 0) > 0]
         
         if not valid_commits:
             continue
@@ -226,7 +226,12 @@ def node_7_heatmap_report_generator(state):
             score = c.get('impact_score', 0)
             desc = c.get('commit_description', 'N/A').replace('\n', ' ').strip()
             desc = saxutils.escape(desc)
-            line = f"<b>[{score:.2f}]</b> {desc}"
+            
+            if score < 0.01:
+                line = f"<b>[&lt;0.01]</b> {desc}"
+            else:
+                line = f"<b>[{score:.2f}]</b> {desc}"
+                
             story.append(Paragraph(f"• {line}", bullet_style))
         
         story.append(Spacer(1, 0.1 * inch))

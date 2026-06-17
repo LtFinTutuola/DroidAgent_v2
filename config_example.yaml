@@ -54,7 +54,6 @@ report_generation:
   generate_report: true
   aggregated_data_file_path: ""
   code_mapping_file_path: ""
-  cutoff_threshold: 0.05
   output_folder: "heatmap_reports"
   use_full_branch_timeline: false
 
