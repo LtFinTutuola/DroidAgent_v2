@@ -159,9 +159,12 @@ def node_7b_commit_heatmap_report_generator(state):
         story.append(Paragraph(f"<b>Soglia Massima Classi Modificate:</b> {updated_classes_threshold}", normal_style))
     
     classes_filter = report_config.get("classes", [])
+    apply_strict_delimitation_area = report_config.get("apply_strict_delimitation_area", False)
     if classes_filter:
         classes_str = ", ".join(classes_filter)
         story.append(Paragraph(f"<b>Filtro Classi Applicato:</b> {classes_str}", normal_style))
+        strict_str = "Sì" if apply_strict_delimitation_area else "No"
+        story.append(Paragraph(f"<b>Area di Delimitazione Rigorosa:</b> {strict_str}", normal_style))
         
     story.append(Spacer(1, 0.2 * inch))
     story.append(Paragraph("Questo report include i commit con un <b>Impact Score aggregato maggiore di zero</b>.", normal_style))

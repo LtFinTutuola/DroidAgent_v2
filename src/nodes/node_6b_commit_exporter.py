@@ -100,6 +100,7 @@ def node_6b_commit_exporter(state):
     report_config = config.get("report_generation", {})
     updated_classes_threshold = report_config.get("updated_classes_threshold", -1)
     classes_filter = report_config.get("classes", [])
+    apply_strict_delimitation_area = report_config.get("apply_strict_delimitation_area", False)
     
     for chash, cdata in commits_data.items():
         if updated_classes_threshold != -1 and len(cdata["classes"]) > updated_classes_threshold:
@@ -110,12 +111,20 @@ def node_6b_commit_exporter(state):
             continue
 
         if classes_filter:
-            if not any(cls_name in classes_filter for cls_name in cdata["classes"]):
-                discard_msg = f"COMMIT EXPORTER: Discarding commit {chash} because none of its updated classes are in the classes filter."
-                logger.info(discard_msg)
-                if produce_log:
-                    logs.append(discard_msg)
-                continue
+            if apply_strict_delimitation_area:
+                if any(cls_name not in classes_filter for cls_name in cdata["classes"]):
+                    discard_msg = f"COMMIT EXPORTER: Discarding commit {chash} because it modifies classes outside the strict delimitation area."
+                    logger.info(discard_msg)
+                    if produce_log:
+                        logs.append(discard_msg)
+                    continue
+            else:
+                if not any(cls_name in classes_filter for cls_name in cdata["classes"]):
+                    discard_msg = f"COMMIT EXPORTER: Discarding commit {chash} because none of its updated classes are in the classes filter."
+                    logger.info(discard_msg)
+                    if produce_log:
+                        logs.append(discard_msg)
+                    continue
 
         commit_obj = {
             "commit_hash": chash,
