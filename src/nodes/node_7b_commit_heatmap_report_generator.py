@@ -29,7 +29,13 @@ def node_7b_commit_heatmap_report_generator(state):
     agg_path_config = report_config.get("aggregated_data_file_path", "")
     raw_path_config = report_config.get("code_mapping_file_path", "")
 
-    suffix = "_commit_heatmap_report.pdf"
+    commit_eval = config.get("commit_evaluation_parameters", {})
+    analyze_overall = commit_eval.get("analyze_commit_overall_complexity", True)
+
+    if analyze_overall:
+        suffix = "_commit_heatmap_report.pdf"
+    else:
+        suffix = "_single_commit_heatmap_report.pdf"
 
     if agg_path_config and raw_path_config and os.path.exists(agg_path_config) and os.path.exists(raw_path_config):
         agg_path = agg_path_config
@@ -154,12 +160,12 @@ def node_7b_commit_heatmap_report_generator(state):
     story.append(Spacer(1, 0.2 * inch))
     story.append(Paragraph(f"<b>Timeframe Analizzato:</b> {timeframe_str}", normal_style))
     story.append(Paragraph(f"<b>Commit Analizzati (sopra soglia):</b> {analyzed_pull_requests}", normal_style))
-    updated_classes_threshold = report_config.get("updated_classes_threshold", -1)
+    updated_classes_threshold = commit_eval.get("updated_classes_threshold", -1)
     if updated_classes_threshold != -1:
         story.append(Paragraph(f"<b>Soglia Massima Classi Modificate:</b> {updated_classes_threshold}", normal_style))
     
-    classes_filter = report_config.get("classes", [])
-    apply_strict_delimitation_area = report_config.get("apply_strict_delimitation_area", False)
+    classes_filter = commit_eval.get("classes", [])
+    apply_strict_delimitation_area = commit_eval.get("apply_strict_delimitation_area", False)
     if classes_filter:
         classes_str = ", ".join(classes_filter)
         story.append(Paragraph(f"<b>Filtro Classi Applicato:</b> {classes_str}", normal_style))

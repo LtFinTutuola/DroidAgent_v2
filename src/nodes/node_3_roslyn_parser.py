@@ -63,7 +63,7 @@ def node_3_roslyn_parser(state):
                 continue
 
             logs.append(f"  COLLECTED semantic hunk: {logical_object} (parent: {parent_signature})")
-            parsed_hunks.append({
+            parsed_hunk = {
                 "commit_hash": commit_hash,
                 "commit_date": commit_date,
                 "commit_description": commit_desc,
@@ -79,7 +79,11 @@ def node_3_roslyn_parser(state):
                 "is_new_or_dead": result.get("is_new_or_dead", False),
                 "raw_complexity_score": result.get("raw_complexity_score", 0),
                 "object_type": result.get("object_type", "method"),
-            })
+            }
+            if "original_pr_id" in diff_entry:
+                parsed_hunk["original_pr_id"] = diff_entry["original_pr_id"]
+            
+            parsed_hunks.append(parsed_hunk)
 
     logger.info(
         f"Roslyn parsed {len(parsed_hunks)} semantic hunks from {len(raw_diffs)} raw diffs."

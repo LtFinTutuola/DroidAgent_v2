@@ -32,23 +32,32 @@ from src.nodes.neural_semantic_engine import NeuralSemanticEngine
 
 def _parse_date(date_str):
     """
-    Parse a Git commit date string to a datetime object.
-    Handles ISO-like formats: '2024-01-15 10:30:00 +0200'
+    Parse a commit date string to a timezone-NAIVE datetime object (UTC-normalized).
+
+    Handles two formats:
+      - Azure DevOps API format: '2026-05-27T07:51:12Z'  (ISO 8601 with Z suffix)
+      - Git %ci format:          '2026-05-27 11:20:54 +0000' (with timezone offset)
+
+    All dates are returned as naive UTC datetimes so arithmetic between them is safe.
     Returns None if parsing fails.
     """
     if not date_str:
         return None
     try:
-        # Git %ci format: '2024-01-15 10:30:00 +0200'
-        # Strip the timezone offset for naive datetime comparison
         clean = date_str.strip()
-        # Try ISO format first
+
+        # Azure DevOps API format: "2026-05-27T07:51:12Z"
+        # fromisoformat with Z produces a timezone-aware datetime; strip tzinfo to make it naive.
         if "T" in clean:
-            return datetime.fromisoformat(clean)
-        # Git %ci format: remove timezone offset
+            normalized = clean.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(normalized)
+            return dt.replace(tzinfo=None)
+
+        # Git %ci format: "2026-05-27 11:20:54 +0200" — strip the timezone offset.
         parts = clean.rsplit(" ", 1)
         if len(parts) == 2 and (parts[1].startswith("+") or parts[1].startswith("-")):
             return datetime.strptime(parts[0], "%Y-%m-%d %H:%M:%S")
+
         return datetime.strptime(clean, "%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError):
         logger.warning(f"Failed to parse date: '{date_str}', defaulting to None")
@@ -277,6 +286,8 @@ def node_5_mapper(state):
                 "calculation_factors": calculation_factors
             }
         }
+        if "original_pr_id" in hunk:
+            commit_obj["original_pr_id"] = hunk["original_pr_id"]
 
         if obj_id in mapping_dict:
             # ── Active method: accumulate impact ─────────────────────

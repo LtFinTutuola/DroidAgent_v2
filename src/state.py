@@ -20,6 +20,8 @@ class AgentState(TypedDict):
 
     # Raw diff payloads optimized for AST analysis.
     # Each entry: {commit_hash, commit_date, file_path, old_text, new_text, old_lines, new_lines}
+    # Optional field (added by node_2b_remote_git_extractor): original_pr_id — the Azure DevOps
+    # pull request ID from which the commit was extracted when using remote extraction mode.
     raw_diffs: List[Dict[str, Any]]
 
     # Semantic nodes returned by the Roslyn parser.

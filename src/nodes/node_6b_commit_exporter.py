@@ -22,11 +22,18 @@ def node_6b_commit_exporter(state):
     output_dir = os.path.dirname(output_path) or "output"
     os.makedirs(output_dir, exist_ok=True)
 
+    # Determine output naming based on commit evaluation mode
+    commit_eval = config.get("commit_evaluation_parameters", {})
+    analyze_overall = commit_eval.get("analyze_commit_overall_complexity", True)
+
     # Timestamped Filenames
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     census_filename = f"{timestamp}_code_mapping.json"
     log_filename = f"{timestamp}_log.txt"
-    aggregated_filename = f"{timestamp}_commit_aggregated_scores.json"
+    if analyze_overall:
+        aggregated_filename = f"{timestamp}_commit_aggregated_scores.json"
+    else:
+        aggregated_filename = f"{timestamp}_single_commit_aggregated_scores.json"
 
     final_census_path = os.path.join(output_dir, census_filename)
     final_log_path = os.path.join(output_dir, log_filename)
@@ -55,6 +62,9 @@ def node_6b_commit_exporter(state):
                         "commit_date": commit.get("commit_date", ""),
                         "classes": {}
                     }
+                    # Propagate original_pr_id if present (remote extraction mode)
+                    if commit.get("original_pr_id"):
+                        commits_data[chash]["original_pr_id"] = commit["original_pr_id"]
                 
                 if class_name not in commits_data[chash]["classes"]:
                     commits_data[chash]["classes"][class_name] = {
@@ -97,42 +107,19 @@ def node_6b_commit_exporter(state):
 
     final_commits = []
     
-    report_config = config.get("report_generation", {})
-    updated_classes_threshold = report_config.get("updated_classes_threshold", -1)
-    classes_filter = report_config.get("classes", [])
-    apply_strict_delimitation_area = report_config.get("apply_strict_delimitation_area", False)
-    
     for chash, cdata in commits_data.items():
-        if updated_classes_threshold != -1 and len(cdata["classes"]) > updated_classes_threshold:
-            discard_msg = f"COMMIT EXPORTER: Discarding commit {chash} because updated classes ({len(cdata['classes'])}) exceeds threshold ({updated_classes_threshold})."
-            logger.info(discard_msg)
-            if produce_log:
-                logs.append(discard_msg)
-            continue
 
-        if classes_filter:
-            if apply_strict_delimitation_area:
-                if any(cls_name not in classes_filter for cls_name in cdata["classes"]):
-                    discard_msg = f"COMMIT EXPORTER: Discarding commit {chash} because it modifies classes outside the strict delimitation area."
-                    logger.info(discard_msg)
-                    if produce_log:
-                        logs.append(discard_msg)
-                    continue
-            else:
-                if not any(cls_name in classes_filter for cls_name in cdata["classes"]):
-                    discard_msg = f"COMMIT EXPORTER: Discarding commit {chash} because none of its updated classes are in the classes filter."
-                    logger.info(discard_msg)
-                    if produce_log:
-                        logs.append(discard_msg)
-                    continue
-
-        commit_obj = {
+        commit_obj = {}
+        if not analyze_overall and "original_pr_id" in cdata:
+            commit_obj["parent_pull_request_id"] = cdata["original_pr_id"]
+            
+        commit_obj.update({
             "commit_hash": chash,
             "commit_description": cdata["commit_description"],
             "commit_date": cdata["commit_date"],
             "impact_score": 0.0,
             "classes": []
-        }
+        })
 
         for class_name, class_data in cdata["classes"].items():
             logical_objects = class_data["logical_objects"]
