@@ -1181,7 +1181,9 @@ namespace SemanticMapper
                         continue; // Skip: new-pass will handle the renamed version
                 }
 
-                int rawScore = isNewOrDead ? CalculateCognitiveComplexity(oldNode ?? matchedNew) : 0;
+                int rawScore = isNewOrDead
+                    ? CalculateCognitiveComplexity(oldNode ?? matchedNew)
+                    : Math.Abs(CalculateCognitiveComplexity(matchedNew) - CalculateCognitiveComplexity(oldNode));
 
                 results.Add(new
                 {
@@ -1242,7 +1244,9 @@ namespace SemanticMapper
                     }
                 }
 
-                int rawScore = isNewOrDead ? CalculateCognitiveComplexity(matchedOld ?? newNode) : 0;
+                int rawScore = isNewOrDead
+                    ? CalculateCognitiveComplexity(matchedOld ?? newNode)
+                    : Math.Abs(CalculateCognitiveComplexity(newNode) - CalculateCognitiveComplexity(matchedOld));
 
                 results.Add(new
                 {

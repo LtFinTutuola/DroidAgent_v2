@@ -242,18 +242,11 @@ def node_5_mapper(state):
             else:
                 dataflow_score = 0.0
 
-            # D_complexity: normalized complexity delta
-            # FLAW 1 FIX: The previous implementation set complexity_score = structural_score * 0.5,
-            # which is NOT a complexity measurement — it was a proxy that double-counted structural
-            # information and made the effective structural weight 47.5% instead of 40%.
-            #
-            # The Roslyn server does not yet provide cognitive complexity for modified methods,
-            # only for new/dead ones. Until that capability is added, we honestly set this to 0.0
-            # for modifications rather than fabricating a value from structural data.
-            #
-            # Impact: the complexity weight (15%) is currently unused for modifications.
-            # This is correct behavior — an honest zero is better than a dishonest proxy.
-            complexity_score = 0.0
+            # D_complexity: normalized cognitive complexity delta from Roslyn server
+            raw_score = float(hunk.get("raw_complexity_score", 0))
+            threshold_key = f"max_{obj_type}_threshold"
+            specific_threshold = float(config.get(threshold_key, 17.0))
+            complexity_score = min(1.0, raw_score / max(1.0, specific_threshold))
 
         # ── Convex synthesis ──────────────────────────────────
         diff_score = (
