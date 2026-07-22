@@ -66,6 +66,10 @@ def calculate_time_multiplier(commit_date_str, repo_first_date_str, repo_last_da
     Formula:
         lifespan_decay = (commit_date - repo_first) / (repo_last - repo_first)
 
+    IMPORTANT: repo_first_date and repo_last_date must be derived from the FULL repository
+    timeline (all commits), NOT from the filtered analysis window. Using the filtered window
+    compresses all multipliers into a narrow range and penalizes early-window commits unfairly.
+
     Returns:
         float: lifespan_time_multiplier
     """
@@ -78,13 +82,14 @@ def calculate_time_multiplier(commit_date_str, repo_first_date_str, repo_last_da
         return 1.0
 
     # ── Lifespan Decay ────────────────────────────────────────────────────
-    # How old is this commit relative to the entire repo history?
+    # How old is this commit relative to the FULL repository history?
     total_span = (repo_last_dt - repo_first_dt).total_seconds()
     if total_span <= 0:
-        # Single-commit repo or same-day first/last
+        # Single-commit repo or same-day first/last: treat as maximally recent
         lifespan_decay = 1.0
     else:
         commit_age = (commit_dt - repo_first_dt).total_seconds()
+        # Clamp: a commit before the repo start or after repo end stays in [0, 1]
         lifespan_decay = max(0.0, min(1.0, commit_age / total_span))
 
     return lifespan_decay
@@ -131,8 +136,11 @@ def node_5_mapper(state):
     # Removed beginning snapshot to reduce log size
 
     # ── Load Time Decay configuration ────────────────────────────────────
-    repo_first_date = state.get("repo_first_commit_date", "")
-    repo_last_date = state.get("repo_last_commit_date", "")
+    # FLAW 4 FIX: Use the full-repository timeline (not the filtered window)
+    # for time decay calibration so that the multiplier reflects the commit's
+    # age relative to the entire project lifespan, not just the analysis slice.
+    repo_first_date = state.get("repo_full_first_commit_date") or state.get("repo_first_commit_date", "")
+    repo_last_date = state.get("repo_full_last_commit_date") or state.get("repo_last_commit_date", "")
 
     logger.info(f"Loaded {len(baseline_objects)} baseline objects.")
     logger.info(f"Loaded {len(parsed_hunks)} historical diff hunks.")
@@ -197,7 +205,18 @@ def node_5_mapper(state):
             threshold_key = f"max_{obj_type}_threshold"
             specific_threshold = float(config.get(threshold_key, 17.0))
             raw_score = float(hunk.get("raw_complexity_score", 0))
-            scale_factor = min(1.0, raw_score / max(1.0, specific_threshold))
+
+            # FLAW 6 FIX: Guard against silent data loss when Roslyn fails to populate
+            # raw_complexity_score. A missing score must not silently zero out the entry.
+            if raw_score == 0:
+                logger.warning(
+                    f"  FLAW6-GUARD: Missing raw_complexity_score for is_new_or_dead hunk "
+                    f"'{obj_id}'. Roslyn did not compute complexity. Using minimal floor (0.1) "
+                    f"to prevent silent data loss."
+                )
+                scale_factor = 0.1  # Non-zero floor: the method exists and was added/deleted
+            else:
+                scale_factor = min(1.0, raw_score / max(1.0, specific_threshold))
 
             # Dynamically scale all 4 dimensions
             structural_score = raw_struct * scale_factor
@@ -224,13 +243,17 @@ def node_5_mapper(state):
                 dataflow_score = 0.0
 
             # D_complexity: normalized complexity delta
-            # The raw_complexity_score from Roslyn is only set for new_or_dead entries,
-            # so for modifications we approximate from the structural data
-            if clean_old != clean_new and structural_score > 0:
-                # Approximate complexity change from the structural score
-                complexity_score = min(1.0, structural_score * 0.5)
-            else:
-                complexity_score = 0.0
+            # FLAW 1 FIX: The previous implementation set complexity_score = structural_score * 0.5,
+            # which is NOT a complexity measurement — it was a proxy that double-counted structural
+            # information and made the effective structural weight 47.5% instead of 40%.
+            #
+            # The Roslyn server does not yet provide cognitive complexity for modified methods,
+            # only for new/dead ones. Until that capability is added, we honestly set this to 0.0
+            # for modifications rather than fabricating a value from structural data.
+            #
+            # Impact: the complexity weight (15%) is currently unused for modifications.
+            # This is correct behavior — an honest zero is better than a dishonest proxy.
+            complexity_score = 0.0
 
         # ── Convex synthesis ──────────────────────────────────
         diff_score = (

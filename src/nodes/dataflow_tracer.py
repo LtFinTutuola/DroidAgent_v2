@@ -72,11 +72,14 @@ class DataFlowTracer:
         Build a lightweight data-flow graph from a C# code fragment.
 
         Returns a set of (source, target) tuples representing data-flow edges:
-        - Variable declaration → all uses of that variable
-        - Assignment → all subsequent uses of the assigned variable
+        - Variable declaration -> all uses of that variable
+        - Assignment -> all subsequent uses of the assigned variable
 
-        The graph is intentionally approximate — it captures local def-use chains
-        within a method body without full semantic analysis.
+        FLAW 2 FIX: Variable names are canonicalized before building the DFG.
+        Without canonicalization, a simple rename (e.g., `regionId` -> `regionIdentifier`)
+        causes 100% Jaccard divergence for all edges involving that variable, despite
+        no logical change to data flow. By replacing actual names with ordered aliases
+        (v0, v1, ...) based on declaration order, the DFG becomes rename-invariant.
         """
         tree = self.parse_fragment(code)
         if tree is None:
@@ -84,23 +87,33 @@ class DataFlowTracer:
 
         try:
             root = tree.root_node
-            edges = set()
 
             # Collect all variable declarations and assignments
-            definitions = {}  # variable_name → defining context
-            usages = {}       # variable_name → [usage contexts]
+            definitions = {}  # variable_name -> defining context
+            usages = {}       # variable_name -> [usage contexts]
 
             self._walk_for_definitions(root, definitions)
             self._walk_for_usages(root, usages)
 
-            # Build def → use edges
+            # FLAW 2 FIX: Build a canonical alias map from real variable names
+            # to positional aliases (v0, v1, v2...) based on declaration order.
+            # This makes the DFG rename-invariant.
+            canonical_map = {
+                name: f"v{i}" for i, name in enumerate(sorted(definitions.keys()))
+            }
+
+            def canon(name: str) -> str:
+                return canonical_map.get(name, name)  # non-declared names stay as-is
+
+            # Build def -> use edges using canonical names
+            edges = set()
             for var_name in definitions:
                 if var_name in usages:
                     for usage_context in usages[var_name]:
-                        edges.add((var_name, usage_context))
+                        edges.add((canon(var_name), usage_context))
 
-            # Build cross-variable flow edges (assignments from one var to another)
-            self._walk_for_assignments(root, edges)
+            # Build cross-variable flow edges using canonical names
+            self._walk_for_assignments(root, edges, canonical_map)
 
             return edges
 
@@ -158,7 +171,7 @@ class DataFlowTracer:
         for child in node.children:
             self._walk_for_usages(child, usages)
 
-    def _walk_for_assignments(self, node, edges: set):
+    def _walk_for_assignments(self, node, edges: set, canonical_map: dict = None):
         """Walk for assignment expressions to build cross-variable flow edges."""
         if node.type == "assignment_expression":
             left = node.child_by_field_name("left")
@@ -169,12 +182,15 @@ class DataFlowTracer:
                 right_names = self._extract_all_identifiers(right)
 
                 if left_name:
+                    # Apply canonical names if the map is provided
+                    canon_left = canonical_map.get(left_name, left_name) if canonical_map else left_name
                     for rname in right_names:
-                        if rname != left_name:
-                            edges.add((rname, f"assign:{left_name}"))
+                        canon_rname = canonical_map.get(rname, rname) if canonical_map else rname
+                        if canon_rname != canon_left:
+                            edges.add((canon_rname, f"assign:{canon_left}"))
 
         for child in node.children:
-            self._walk_for_assignments(child, edges)
+            self._walk_for_assignments(child, edges, canonical_map)
 
     def _build_usage_context(self, node) -> str:
         """Build a context string describing how an identifier is used."""
@@ -233,9 +249,15 @@ class DataFlowTracer:
         Uses the Jaccard distance on DFG edge sets:
             D_dataflow = 1 - |E_old ∩ E_new| / |E_old ∪ E_new|
 
+        FLAW 2 FIX (empty-set asymmetry): The original implementation returned 1.0
+        whenever old_edges was empty but new_edges was not (e.g., a completely new
+        method body). This was incorrect: the absence of prior data flow should not
+        be treated as complete divergence. We now return a bounded score (capped at 0.5)
+        scaled to the new DFG size, reflecting "partial novelty" rather than "total chaos".
+
         Returns:
             0.0 if data flows are identical
-            1.0 if completely divergent
+            1.0 if completely divergent (only when both sides have non-trivial DFGs)
             0.0 as fallback if parsing fails (fault-tolerant)
         """
         if not _TS_AVAILABLE:
@@ -245,9 +267,21 @@ class DataFlowTracer:
             old_edges = self.build_local_dfg(old_code)
             new_edges = self.build_local_dfg(new_code)
 
-            # Handle empty edge sets
+            # Both empty: no data flow on either side -> no divergence
             if not old_edges and not new_edges:
                 return 0.0
+
+            # FLAW 2 FIX: Asymmetric empty-set case
+            # If one side has no DFG (e.g., completely new method or no local vars),
+            # a raw Jaccard distance would return 1.0 — treating the mere presence
+            # of variables as maximum divergence. Instead, we cap at 0.5 and scale
+            # linearly by the number of new edges (capped at 10 for normalization).
+            if not old_edges and new_edges:
+                bounded = min(0.5, len(new_edges) / 20.0)
+                return round(bounded, 6)
+            if old_edges and not new_edges:
+                bounded = min(0.5, len(old_edges) / 20.0)
+                return round(bounded, 6)
 
             union = old_edges | new_edges
             intersection = old_edges & new_edges

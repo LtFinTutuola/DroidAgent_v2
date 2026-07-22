@@ -49,6 +49,11 @@ class AgentState(TypedDict):
     # Absolute date of the repository's most recent commit (ISO format string)
     repo_last_commit_date: str
 
+    # Full-repository timeline (all commits, not filtered by since_filter).
+    # Used by node_5_mapper for time decay calibration (Flaw 4 fix).
+    repo_full_first_commit_date: str
+    repo_full_last_commit_date: str
+
     # Detailed logs reporting the collecting and discarding operations.
     extraction_logs: List[str]
 

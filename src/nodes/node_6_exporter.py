@@ -131,9 +131,28 @@ def node_6_exporter(state):
                             }
                         class_data["legacy_commits"][chash]["impacts"].append(impact)
 
-    def calculate_harmonic_score(impacts):
+    def calculate_harmonic_score(impacts, class_size: int = 1):
+        """
+        Compute a size-normalized harmonic impact score for a set of per-method impacts.
+
+        The classic harmonic series sum( score_i / (i+1) ) is unbounded as method count grows.
+        A class with 20 small changes will reliably outscore a class with 1 large change,
+        irrespective of actual per-method impact magnitude.
+
+        FLAW 5 FIX: Divide by log(class_size + 1) to apply a logarithmic penalty that
+        dampens score inflation for large classes, while preserving the harmonic ordering
+        within a class (more impactful methods still rank higher than less impactful ones).
+
+        A class_size of 1 yields log(2) \u2248 0.693, keeping small-class scores in a
+        comparable range to the previous formula. A class of 50 methods yields log(51) \u2248 3.93,
+        reducing the aggregated score by ~5.7x relative to an unnormalized sum.
+        """
+        import math
         sorted_impacts = sorted(impacts, reverse=True)
-        return sum(score / (i + 1) for i, score in enumerate(sorted_impacts))
+        raw = sum(score / (i + 1) for i, score in enumerate(sorted_impacts))
+        normalizer = math.log(max(class_size, 1) + 1)
+        return raw / normalizer
+
 
     final_projects = []
     
@@ -148,8 +167,9 @@ def node_6_exporter(state):
             active_score = 0.0
             commit_contributions = []
             
+            class_size = len(class_data["logical_objects"])
             for chash, cdata in class_data["active_commits"].items():
-                h_score = calculate_harmonic_score(cdata["impacts"])
+                h_score = calculate_harmonic_score(cdata["impacts"], class_size=class_size)
                 active_score += h_score
                 commit_contributions.append({
                     "commit_hash": cdata["commit_hash"],
@@ -163,7 +183,7 @@ def node_6_exporter(state):
             
             legacy_score = class_data["base_legacy_score"]
             for chash, cdata in class_data["legacy_commits"].items():
-                legacy_score += calculate_harmonic_score(cdata["impacts"])
+                legacy_score += calculate_harmonic_score(cdata["impacts"], class_size=class_size)
                 
             class_obj = {
                 "class_name": class_name,

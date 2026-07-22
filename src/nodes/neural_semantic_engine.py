@@ -179,15 +179,27 @@ class NeuralSemanticEngine:
 
     def _get_embedding(self, code: str) -> np.ndarray:
         """
-        Get the [CLS] embedding vector for a code string.
+        Get the mean-pooled embedding vector for a code string.
 
-        Returns a 768-dimensional numpy array.
+        FLAW 3 FIX: The original implementation used padding="max_length" (always 512
+        tokens) and extracted only the [CLS] token embedding. For short code snippets
+        (5-20 lines), this meant 490+ tokens were padding [PAD], causing the CLS
+        embedding to reflect mostly padding noise and making all short snippets
+        converge to nearly the same vector (observed semantic scores of 0.001-0.035).
+
+        Fix applied:
+        1. padding="longest": pad only to the longest sequence in the batch, not to 512.
+           For a single snippet, this pads to its actual token length.
+        2. Mean-pooling over non-padding tokens: average the hidden states of all REAL
+           tokens (where attention_mask=1), not just the single CLS token. This is
+           empirically superior for code similarity tasks and far more robust to snippet
+           length variation.
         """
-        # Tokenize
+        # Tokenize with dynamic padding (only to actual input length)
         inputs = self._tokenizer(
             code,
             max_length=self.MAX_LENGTH,
-            padding="max_length",
+            padding="longest",       # FLAW 3 FIX: was "max_length"
             truncation=True,
             return_tensors="np"
         )
@@ -200,11 +212,22 @@ class NeuralSemanticEngine:
 
         outputs = self._session.run(None, ort_inputs)
 
-        # Extract [CLS] token embedding (first token of last hidden state)
-        last_hidden_state = outputs[0]  # shape: (1, seq_len, hidden_dim)
-        cls_embedding = last_hidden_state[0, 0, :]  # shape: (hidden_dim,)
+        # FLAW 3 FIX: Mean-pool over non-padding tokens (was: CLS token only)
+        # last_hidden_state shape: (1, seq_len, hidden_dim)
+        last_hidden_state = outputs[0]
+        attention_mask = inputs["attention_mask"]  # shape: (1, seq_len)
 
-        return cls_embedding
+        # Expand mask to match hidden_dim for broadcasting
+        mask_expanded = attention_mask[..., np.newaxis].astype(np.float32)  # (1, seq_len, 1)
+
+        # Sum only the real-token embeddings, then divide by real token count
+        sum_embeddings = np.sum(last_hidden_state * mask_expanded, axis=1)  # (1, hidden_dim)
+        token_count = np.sum(mask_expanded, axis=1)                          # (1, 1)
+        token_count = np.maximum(token_count, 1e-9)                         # prevent divide-by-zero
+
+        mean_embedding = (sum_embeddings / token_count)[0]  # shape: (hidden_dim,)
+        return mean_embedding
+
 
     def compute_semantic_divergence(self, old_code: str, new_code: str) -> float:
         """

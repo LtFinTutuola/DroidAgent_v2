@@ -92,11 +92,17 @@ def node_1_config_manager(state):
     commits = [h.strip().strip('"') for h in log_output.splitlines() if h.strip()]
 
     # ── Calculate repository temporal boundaries ─────────────────────────────
-    # Depending on config, these are either the absolute first and last commit dates 
-    # across the entire repo, or filtered by the since_filter timeframe.
+    # Two separate timelines are maintained:
+    # 1. "filtered" (repo_first/last_commit_date): boundaries of the ANALYSIS WINDOW
+    #    (i.e., filtered by since_filter). Used for logging and display.
+    # 2. "full" (repo_full_first/last_commit_date): absolute boundaries of the ENTIRE
+    #    repository history. Used by node_5_mapper for time decay calibration.
+    #    FLAW 4 FIX: separating these prevents the decay multiplier from being compressed
+    #    into a narrow band when analyzing only a 1-week window.
+
     report_config = config.get("report_generation", {})
     use_full_timeline = report_config.get("use_full_branch_timeline", True)
-    
+
     first_commit_flag = "" if use_full_timeline else since_flag
 
     repo_first_commit_date = execute_git(
@@ -109,8 +115,18 @@ def node_1_config_manager(state):
         cwd=repo_path, check=True
     ).strip().strip('"') if commits else ""
 
-    logger.info(f"Repo First Commit: {repo_first_commit_date}")
-    logger.info(f"Repo Last Commit : {repo_last_commit_date}")
+    # Full repo timeline — always uses all commits regardless of since_filter
+    repo_full_first_commit_date = execute_git(
+        f'git log --reverse --format="%ci" {target_branch}',
+        cwd=repo_path, check=True
+    ).splitlines()[0].strip().strip('"') if commits else ""
+
+    repo_full_last_commit_date = repo_last_commit_date  # same: newest commit on branch
+
+    logger.info(f"Repo First Commit (window): {repo_first_commit_date}")
+    logger.info(f"Repo Last Commit  (window): {repo_last_commit_date}")
+    logger.info(f"Repo First Commit (full)  : {repo_full_first_commit_date}")
+    logger.info(f"Repo Last Commit  (full)  : {repo_full_last_commit_date}")
 
     logs = [
         f"CONFIG LOADED: repo_path={repo_path}, target_branch={target_branch}, since_filter={since_filter}",
@@ -123,6 +139,8 @@ def node_1_config_manager(state):
         "commits_to_process": commits,
         "repo_first_commit_date": repo_first_commit_date,
         "repo_last_commit_date": repo_last_commit_date,
+        "repo_full_first_commit_date": repo_full_first_commit_date,
+        "repo_full_last_commit_date": repo_full_last_commit_date,
         "extraction_logs": logs,
     }
 
