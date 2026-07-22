@@ -22,6 +22,28 @@ def node_1_config_manager(state):
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
+    # Elevate pipeline mode specific parameters to root config
+    pipeline_mode = config.get("pipeline_mode", "git_log_history")
+    mode_params_key = f"{pipeline_mode}_parameters"
+    mode_params = config.get(mode_params_key, {})
+    
+    # Merge mode specific parameters into root config
+    for k, v in mode_params.items():
+        config[k] = v
+
+    if "report_generation" not in config:
+        config["report_generation"] = {}
+
+    # Bypass class filter if mode is bug_fixes_only
+    if pipeline_mode == "bug_fixes_only":
+        config["report_generation"]["analyze_class_level"] = False
+        
+    # Enforce class filter if mode is single_commits_evaluation
+    if pipeline_mode == "single_commits_evaluation":
+        config["report_generation"]["analyze_class_level"] = True
+        if "classes" in config:
+            config["report_generation"]["classes"] = config["classes"]
+
     repo_path = config["repo_path"]
     target_branch = config["target_branch"]
     since_filter = config["since_filter"]
